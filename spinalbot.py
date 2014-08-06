@@ -4,16 +4,40 @@ from threading import Thread
 import time
 import praw
 import sys
+import MySQLdb
+import subprocess
 
 done = False
 username = ' '
 password = ' '
+dbUsername = ' '
+dbPassword = ' '
+db = None
+
+selected = -1
+list = []
+
+class ApplicationItem:
+	def __init__(self, index, author, text):
+		self.index = index
+		self.author = author
+		self.text = text
 
 def main():
 	global username
 	global password
+	global dbUsername
+	global dbPassword
+	if len(sys.argv) < 5:
+		print 'Error: you must provide reddit username and password, as well as sql username and password!'
+		sys.exit()
+
 	username = sys.argv[1]
 	password = sys.argv[2]
+	dbUsername = sys.argv[3]
+	dbPassword = sys.argv[4]
+
+	open_database()
 	start_listener()
 	console()
 
@@ -22,29 +46,141 @@ def start_listener():
 	listener.setDaemon(True)
 	listener.start()
 
+def open_database():
+	global db
+	db = MySQLdb.connect('localhost', dbUsername, dbPassword, 'Spinalcraft')
+	cursor = db.cursor()
+	query = """CREATE TABLE IF NOT EXISTS Applications (
+						id INT PRIMARY KEY AUTO_INCREMENT,
+						author VARCHAR(32),
+						text VARCHAR(3000),
+						unread TINYINT,
+						discarded TINYINT)"""
+	try:
+		cursor.execute(query)
+		db.commit()
+	except:
+		db.rollback()
+		print "Database error."
+
+def display_list():
+	print ""
+	for i in range(0, len(list)):
+		print '{0} {1}'.format(i, list[i].author)
+
+def refresh_list():
+	global list
+	list = []
+	cursor = db.cursor(MySQLdb.cursors.DictCursor)
+	query = """SELECT * FROM Applications
+							WHERE unread = 1 AND discarded = 0"""
+	try:
+		cursor.execute(query)
+		results = cursor.fetchall()
+		for row in results:
+			new_item = ApplicationItem(row["id"], row["author"], row["text"])
+			list.append(new_item)
+	except:
+		db.rollback()
+		print "Database error while selecting list!"
+
+def insert_application(author, text):
+	cursor = db.cursor()
+	query = """INSERT INTO Applications (author, text, unread, discarded) 
+							VALUES (%s, %s, 1, 0)"""
+	params = author, text
+	try:
+		cursor.execute(query, params)
+		db.commit()
+	except:
+		db.rollback()
+		print "Database error while inserting application!"
+		print "Query: " + query
+
 def console():
+	refresh_list()
 	while not done:
-		cmd = raw_input('>')
+		if selected == -1:
+			cmd = raw_input('\n>')
+		else:
+			cmd = raw_input('\n-=-_>')
 		if cmd:
 			process_command(cmd)
 
 def process_command(cmd):
 	global done
+	global selected
 	toks = cmd.split()
-	if toks[0] == 'exit':
-		done = True
-	elif toks[0] == 'accept':
-		accept(toks[1:])
+	if selected == -1:
+		if toks[0] == 'exit':
+			done = True
+		elif toks[0] == 'refresh':
+			refresh_list()
+		elif toks[0] == 'list':
+			refresh_list()
+			display_list()
+		elif toks[0] == 'select' and len(toks) > 1:
+			select(int(toks[1]))
+		else:
+			print 'Command not recognized.'
 	else:
-		print 'Command not recognized.'
+		if toks[0] == 'accept' and len(toks) > 1 and selected != -1:
+			accept(toks[1])
+		elif toks[0] == 'discard':
+			discard()
+		elif toks[0] == 'back':
+			selected = -1
+		else:
+			print 'Command not recognized.'
 
-def accept(names):
+def accept(ign):
+	global selected
+	subprocess.call(['/home/scripts/whitelistAdd.sh', ign])
+	notify(list[selected].author)
+	mark_application(list[selected].index)
+	print "\n{0} has been added to the whitelist. {1} has been notified.".format(ign, list[selected].author)
+	selected = -1
+	refresh_list()
+
+def discard():
+	global selected
+	cursor = db.cursor()
+	query = 'UPDATE Applications SET discarded = 1 WHERE id = {}'.format(list[selected].index)
+	try:
+		cursor.execute(query)
+		db.commit()
+	except:
+		db.rollback()
+		print "Database error while marking application as discarded!"
+	selected = -1
+	refresh_list()
+
+def mark_application(index):
+	cursor = db.cursor()
+	query = 'UPDATE Applications SET unread = 0 WHERE id = {}'.format(index)
+	try:
+		cursor.execute(query)
+		db.commit()
+	except:
+		db.rollback()
+		print "Database error while marking application as read!"
+
+def select(index):
+	global selected
+	if index > len(list):
+		print "Error: index out of range."
+		return
+	selected = index
+	item = list[index]
+	print "\nApplication from {0}:".format(item.author)
+	print "\n{}".format(item.text)
+
+def notify(name):
 	r = get_session(username, password)
-	for name in names:
-		try:
-			r.send_message(name, 'Welcome!', 'Welcome to Spinalcraft! I just added you, [have fun!](/r/spinalcraft)')
-		except (praw.errors.InvalidUser):
-			print 'User does not exist!'
+	try:
+		r.send_message(name, 'Welcome!', 'Welcome to Spinalcraft! I just added you, [have fun!](/r/spinalcraft)')
+	except (praw.errors.InvalidUser):
+		print 'User does not exist!'
 
 def get_session(user, pwd):
 	r = praw.Reddit('a')
@@ -57,9 +193,13 @@ def listener_thread():
 	while True:
 		unread = r.get_unread()	
 		for message in unread:
-			r.send_message('DoctorSauce', 'Application from ' + message.author.name, message)
+			r.send_message('DoctorSauce', 'Application from ' + message.author.name, message.body)
 			message.mark_as_read()
-			message.remove()
+			insert_application(message.author.name, message.body)
+			if isinstance(message, praw.objects.Moderatable):
+				r.send_message(message.author.name, 'Thanks for applying to Spinalcraft!', 
+					'Your app has been filed and is waiting to be processed. This can take anywhere from several minutes to a few hours. It really just depends on whether Parker is on top of things right now :)')			
+				message.remove()
 		time.sleep(3)
 
 if __name__ == '__main__':
