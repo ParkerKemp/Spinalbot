@@ -1,0 +1,8 @@
+#!/bin/sh
+
+HOME=/opt/spinalbot
+
+cd $HOME
+
+cp spinalbot-daemon /usr/local/sbin
+cp spinalbot-console /usr/local/bin
