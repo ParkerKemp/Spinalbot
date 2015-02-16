@@ -167,7 +167,7 @@ def mark_application(index):
 
 def select(index):
 	global selected
-	if index > len(list):
+	if index >= len(list):
 		print "Error: index out of range."
 		return
 	selected = index
