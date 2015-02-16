@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+
+from threading import Thread
+import time
+import praw
+import sys
+import MySQLdb
+import subprocess
+
+done = False
+username = ' '
+password = ' '
+dbUsername = ' '
+dbPassword = ' '
+db = None
+
+class ApplicationItem:
+	def __init__(self, index, author, text):
+		self.index = index
+		self.author = author
+		self.text = text
+
+def main():
+	global username
+	global password
+	global dbUsername
+	global dbPassword
+	if len(sys.argv) < 5:
+		print 'Error: you must provide reddit username and password, as well as sql username and password!'
+		sys.exit()
+
+	username = sys.argv[1]
+	password = sys.argv[2]
+	dbUsername = sys.argv[3]
+	dbPassword = sys.argv[4]
+
+	open_database()
+	#start_listener()
+	listener_thread()
+
+def start_listener():
+	listener = Thread(target = listener_thread)
+	listener.setDaemon(True)
+	listener.start()
+
+def open_database():
+	global db
+	db = MySQLdb.connect('localhost', dbUsername, dbPassword, 'Spinalcraft')
+	cursor = db.cursor()
+	query = """CREATE TABLE IF NOT EXISTS Applications (
+						id INT PRIMARY KEY AUTO_INCREMENT,
+						author VARCHAR(32),
+						text VARCHAR(3000),
+						unread TINYINT,
+						discarded TINYINT)"""
+	try:
+		cursor.execute(query)
+		db.commit()
+	except:
+		db.rollback()
+		print "Database error."
+
+def insert_application(author, text):
+	cursor = db.cursor()
+	query = """INSERT INTO Applications (author, text, unread, discarded) 
+							VALUES (%s, %s, 1, 0)"""
+	params = author, text
+	try:
+		cursor.execute(query, params)
+		db.commit()
+	except:
+		db.rollback()
+		print "Database error while inserting application!"
+		print "Query: " + query
+
+def notify(name):
+	r = get_session(username, password)
+	try:
+		r.send_message(name, 'Welcome!', 'Welcome to Spinalcraft! I just added you, [have fun!](/r/spinalcraft)')
+	except (praw.errors.InvalidUser):
+		print 'User does not exist!'
+
+def get_session(user, pwd):
+	r = praw.Reddit('a')
+	r.login(username = user, password = pwd)
+	return r
+
+def listener_thread():
+	r = get_session(username, password)
+
+	while True:
+		unread = r.get_unread()	
+		for message in unread:
+			r.send_message('DoctorSauce', 'Application from ' + message.author.name, message.body)
+			message.mark_as_read()
+			insert_application(message.author.name, message.body)
+			if isinstance(message, praw.objects.Moderatable):
+				r.send_message(message.author.name, 'Thanks for applying to Spinalcraft!', 
+					'Your app has been filed and is waiting to be processed. This can take anywhere from several minutes to a few hours. It really just depends on whether Parker is on top of things right now :)')			
+				message.remove()
+		time.sleep(3)
+
+if __name__ == '__main__':
+	main()

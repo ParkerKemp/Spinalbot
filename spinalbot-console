@@ -38,13 +38,7 @@ def main():
 	dbPassword = sys.argv[4]
 
 	open_database()
-	start_listener()
 	console()
-
-def start_listener():
-	listener = Thread(target = listener_thread)
-	listener.setDaemon(True)
-	listener.start()
 
 def open_database():
 	global db
@@ -186,21 +180,6 @@ def get_session(user, pwd):
 	r = praw.Reddit('a')
 	r.login(username = user, password = pwd)
 	return r
-
-def listener_thread():
-	r = get_session(username, password)
-
-	while True:
-		unread = r.get_unread()	
-		for message in unread:
-			r.send_message('DoctorSauce', 'Application from ' + message.author.name, message.body)
-			message.mark_as_read()
-			insert_application(message.author.name, message.body)
-			if isinstance(message, praw.objects.Moderatable):
-				r.send_message(message.author.name, 'Thanks for applying to Spinalcraft!', 
-					'Your app has been filed and is waiting to be processed. This can take anywhere from several minutes to a few hours. It really just depends on whether Parker is on top of things right now :)')			
-				message.remove()
-		time.sleep(3)
 
 if __name__ == '__main__':
 	main()
