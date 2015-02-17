@@ -38,7 +38,11 @@ def main():
 	dbPassword = sys.argv[4]
 
 	open_database()
-	console()
+	try:
+		console()
+	except (KeyboardInterrupt):
+		print "\n\nReceived SIGINT: exiting..."
+		sys.exit()
 
 def open_database():
 	global db
@@ -129,7 +133,7 @@ def process_command(cmd):
 
 def accept(ign):
 	global selected
-	subprocess.call(['/home/scripts/whitelistAdd.sh', ign])
+	subprocess.call(['whitelist', ign])
 	notify(list[selected].author)
 	mark_application(list[selected].index)
 	print "\n{0} has been added to the whitelist. {1} has been notified.".format(ign, list[selected].author)
