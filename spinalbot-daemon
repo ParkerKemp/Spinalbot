@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 
-from threading import Thread
 import time
 import praw
 import sys
 import MySQLdb
-import subprocess
+import logging
 
 done = False
 username = ' '
@@ -25,27 +24,24 @@ def main():
 	global password
 	global dbUsername
 	global dbPassword
+	logging.basicConfig(filename='/var/log/spinalbot.log', level=logging.INFO, format='%(asctime)s %(message)s')
 	if len(sys.argv) < 5:
-		print 'Error: you must provide reddit username and password, as well as sql username and password!'
+		logging.error('Invalid arguments. Must provide reddit user, reddit pass, sql user, sql pass')#print 'Error: you must provide reddit username and password, as well as sql username and password!'
 		sys.exit()
 
+	logging.info('Spinalbot daemon launched.')	
 	username = sys.argv[1]
 	password = sys.argv[2]
 	dbUsername = sys.argv[3]
 	dbPassword = sys.argv[4]
-
+	
 	open_database()
-	#start_listener()
 	listener_thread()
-
-def start_listener():
-	listener = Thread(target = listener_thread)
-	listener.setDaemon(True)
-	listener.start()
 
 def open_database():
 	global db
 	db = MySQLdb.connect('localhost', dbUsername, dbPassword, 'Spinalcraft')
+	logging.info('Database connection established.')
 	cursor = db.cursor()
 	query = """CREATE TABLE IF NOT EXISTS Applications (
 						id INT PRIMARY KEY AUTO_INCREMENT,
@@ -56,9 +52,9 @@ def open_database():
 	try:
 		cursor.execute(query)
 		db.commit()
-	except:
+	except MySQLdb.Error, e:
 		db.rollback()
-		print "Database error."
+		logging.info("MySQL Error [%d]: %s" % (e.args[0], e.args[1])) 
 
 def insert_application(author, text):
 	cursor = db.cursor()
@@ -68,17 +64,17 @@ def insert_application(author, text):
 	try:
 		cursor.execute(query, params)
 		db.commit()
-	except:
+		logging.info("Inserted application into database.")
+	except MySQLdb.Error, e:
 		db.rollback()
-		print "Database error while inserting application!"
-		print "Query: " + query
+		logging.info("MySQL Error [%d]: %s" % (e.args[0], e.args[1])) 
 
 def notify(name):
 	r = get_session(username, password)
 	try:
 		r.send_message(name, 'Welcome!', 'Welcome to Spinalcraft! I just added you, [have fun!](/r/spinalcraft)')
-	except (praw.errors.InvalidUser):
-		print 'User does not exist!'
+	except praw.errors.InvalidUser:
+		logging.error("Notify error: reddit user %s does not exist!" % (name))
 
 def get_session(user, pwd):
 	r = praw.Reddit('a')
@@ -90,14 +86,19 @@ def listener_thread():
 
 	while True:
 		unread = r.get_unread()	
-		for message in unread:
-			r.send_message('DoctorSauce', 'Application from ' + message.author.name, message.body)
-			message.mark_as_read()
-			insert_application(message.author.name, message.body)
-			if isinstance(message, praw.objects.Moderatable):
-				r.send_message(message.author.name, 'Thanks for applying to Spinalcraft!', 
-					'Your app has been filed and is waiting to be processed. This can take anywhere from several minutes to a few hours. It really just depends on whether Parker is on top of things right now :)')			
-				message.remove()
+		try:
+			for message in unread:
+				logging.info("%s received reddit message from %s" % (username, message.author.name))
+				r.send_message('DoctorSauce', 'Application from ' + message.author.name, message.body)
+				logging.info("Forwarded to DoctorSauce.")
+				message.mark_as_read()
+				insert_application(message.author.name, message.body)
+				if isinstance(message, praw.objects.Moderatable):
+					r.send_message(message.author.name, 'Thanks for applying to Spinalcraft!', 
+						'Your app has been filed and is waiting to be processed. This can take anywhere from several minutes to a few hours. It really just depends on whether Parker is on top of things right now :)')			
+					message.remove()
+		except HttpError:
+			logging.warning("HTTP Error caught. Ignoring...")
 		time.sleep(3)
 
 if __name__ == '__main__':

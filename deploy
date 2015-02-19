@@ -8,6 +8,3 @@ cp spinalbot-daemon /usr/local/sbin
 #cp spinalbot-console /usr/local/bin
 
 mkdir /var/log/spinalbot &>/dev/null
-
-echo 'parker ALL=(root) NOPASSWD:/usr/local/bin/spinalbot' > /etc/sudoers.d/spinalbot
-chmod 0440 /etc/sudoers.d/spinalbot
