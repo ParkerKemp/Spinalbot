@@ -6,5 +6,3 @@ cd $HOME
 
 cp spinalbot-daemon /usr/local/sbin
 #cp spinalbot-console /usr/local/bin
-
-mkdir /var/log/spinalbot &>/dev/null

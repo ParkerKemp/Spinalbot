@@ -2,6 +2,7 @@
 
 import time
 import praw
+import signal
 import sys
 import MySQLdb
 import logging
@@ -12,6 +13,10 @@ password = ' '
 dbUsername = ' '
 dbPassword = ' '
 db = None
+
+def sigterm_handler(signal, frame):
+	logging.warning('Received SIGTERM. Terminating.')
+	sys.exit(0)
 
 class ApplicationItem:
 	def __init__(self, index, author, text):
@@ -25,6 +30,7 @@ def main():
 	global dbUsername
 	global dbPassword
 	logging.basicConfig(filename='/var/log/spinalbot.log', level=logging.INFO, format='%(asctime)s %(message)s')
+	signal.signal(signal.SIGTERM, sigterm_handler)
 	if len(sys.argv) < 5:
 		logging.error('Invalid arguments. Must provide reddit user, reddit pass, sql user, sql pass')#print 'Error: you must provide reddit username and password, as well as sql username and password!'
 		sys.exit()
@@ -55,6 +61,7 @@ def open_database():
 	except MySQLdb.Error, e:
 		db.rollback()
 		logging.info("MySQL Error [%d]: %s" % (e.args[0], e.args[1])) 
+	cursor.close()
 
 def insert_application(author, text):
 	cursor = db.cursor()
@@ -68,6 +75,7 @@ def insert_application(author, text):
 	except MySQLdb.Error, e:
 		db.rollback()
 		logging.info("MySQL Error [%d]: %s" % (e.args[0], e.args[1])) 
+	cursor.close()
 
 def notify(name):
 	r = get_session(username, password)

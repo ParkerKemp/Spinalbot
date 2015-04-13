@@ -107,6 +107,7 @@ def console():
 
 def prompt(string):
 	sys.stdout.write(string)
+	sys.stdout.flush()
 	return raw_input()
 
 def process_command(cmd):
